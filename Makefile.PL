@@ -7,5 +7,6 @@ WriteMakefile(
 				 Params::Validate  => 0.59,
 				 Config::Auto	   => 0.03,
 				 Text::FormatTable => 1.00,
+				 Test::Warn	   => 0.07,
 			       },
 );

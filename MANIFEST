@@ -3,7 +3,6 @@ Changes
 MANIFEST			This list of files
 MANIFEST.SKIP
 Makefile.PL
-MyConfig.pm
 README
 lib/Module/TestConfig.pm
 lib/Module/TestConfig/Question.pm
