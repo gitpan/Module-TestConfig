@@ -2,7 +2,7 @@
 #
 # Module::TestConfig::Question - question interface
 #
-# $Id: Question.pm,v 1.4 2003/08/20 19:24:32 jkeroes Exp $
+# $Id: Question.pm,v 1.7 2003/08/28 21:02:14 jkeroes Exp $
 
 package Module::TestConfig::Question;
 
@@ -26,7 +26,11 @@ sub init {
     my $self = shift;
 
     if ( ref $_[0] eq "ARRAY" ) {
-	@{$self}{ qw/msg name default opts/ } = @{$_[0]};
+	my @q = @{+shift};
+	$self->msg(  shift @q ) if @q;
+	$self->name( shift @q ) if @q;
+	$self->def(  shift @q ) if @q;
+	$self->opts( shift @q ) if @q;
     } else {
 	my %args = ref $_[0] eq "HASH" ? %{$_[0]} : @_;
 	while ( my ( $method, $args ) = each %args ) {
@@ -74,25 +78,33 @@ sub opts {
 	}
     }
 
-    return wantarray ? %{ $self->{opts} } : $self->{opts};
+    return wantarray
+	? ( skip     => $self->{skip},
+	    validate => $self->{validate},
+	    noecho   => $self->{noecho},
+	  )
+	: { skip     => $self->{skip},
+	    validate => $self->{validate},
+	    noecho   => $self->{noecho},
+	};
 }
 
 sub skip {
     my $self = shift;
-    $self->{opts}{skip} = shift if @_;
-    return $self->{opts}{skip};
+    $self->{skip} = shift if @_;
+    return $self->{skip};
 }
 
 sub validate {
     my $self = shift;
-    $self->{opts}{validate} = shift if @_;
-    return $self->{opts}{validate};
+    $self->{validate} = shift if @_;
+    return $self->{validate};
 }
 
 sub noecho {
     my $self = shift;
-    $self->{opts}{noecho} = shift if @_;
-    return $self->{opts}{noecho};
+    $self->{noecho} = shift if @_;
+    return $self->{noecho};
 }
 
 # Aliases
@@ -133,10 +145,10 @@ Returns: an object
 
 =item msg()
 
+=item question()
+
 Required. The question we ask of a user. A string. Tends
 to look best when there's a '?' or a ':' on the end.
-
-Aliased as question()
 
 Args: a question to ask the user
 
@@ -152,9 +164,9 @@ Returns: that name
 
 =item def()
 
-A question's default answer.
+=item  default()
 
-Aliased as default().
+A question's default answer.
 
 Args: a default
 
@@ -162,9 +174,9 @@ Returns: that default
 
 =item opts()
 
-See L<"skip()">, L<"validate()"> and L<"noecho()">.
+=item options()
 
-Aliased as options().
+See L<"skip()">, L<"validate()"> and L<"noecho()">.
 
 Args: A hash or hashref of options.
 

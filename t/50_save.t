@@ -1,7 +1,7 @@
 # -*- perl -*-
 
-use Test::More tests => 13;
-#use Test::More 'no_plan';
+#use Test::More tests => 13;
+use Test::More 'no_plan';
 
 use Module::TestConfig;
 
@@ -37,14 +37,8 @@ is $m->four, 4,			 "four() == 4";
 is $m->testconfig_five, 5,	 "five() == 5";
 ok ! eval { $m->dne },	 	 "dne(), a nonexistent method";
 
-is $t->report, <<TEXT,		 "report()";
-===========================
-|            Name | Value |
-===========================
-|             one | 1     |
-|             two | 2     |
-|           three | 3     |
-|            four | 4     |
-| testconfig_five | 5     |
-+-----------------+-------+
-TEXT
+like $t->report, qr/one.*\b1\b/m,	"report 1";
+like $t->report, qr/two.*\b2\b/m,	"report 2";
+like $t->report, qr/three.*\b3\b/m,	"report 3";
+like $t->report, qr/four.*\b4\b/m,	"report 4";
+like $t->report, qr/five.*\b5\b/m,	"report 5";

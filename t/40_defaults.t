@@ -1,7 +1,8 @@
 # -*- perl -*-
 
-#use Test::More tests => 24;
-use Test::More 'no_plan';
+use Test::More tests => 28;
+#use Test::More 'no_plan';
+
 use Test::Warn;
 use Config::Auto;
 use Module::TestConfig;

@@ -1,5 +1,14 @@
 Changes for Module::TestConfig
 
+0.04  Thu Aug 28 18:53:31 2003
+	- major validate bug fixed
+	- added more examples to the docs
+	- Internal changes to Question.pm
+	- 4 modules are now only loaded on use
+	- report() will suffice without Text::FormatTable
+	- reports are indented
+	- prompt() just returns an answer, it doesn't actually set it.
+
 0.03  Tue Aug 26 12:09:33 2003
 	- fix bug in the SYNOPSIS code example
 	- added save_defaults()

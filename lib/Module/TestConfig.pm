@@ -2,7 +2,7 @@
 #
 # Module::TestConfig - asks questions and autowrite a module
 #
-# $Id: TestConfig.pm,v 1.24 2003/08/26 19:47:58 jkeroes Exp $
+# $Id: TestConfig.pm,v 1.33 2003/08/29 18:40:16 jkeroes Exp $
 
 package Module::TestConfig;
 
@@ -11,16 +11,18 @@ use strict;
 use Carp;
 use Fcntl;
 use File::Basename	qw/dirname/;
-use File::Path		qw/mkpath/;
-use Text::FormatTable;
-use Data::Dumper;
-use Term::ReadKey;
 use Params::Validate;
 use Config::Auto;
 use Module::TestConfig::Question;
 
+# Dynamically loaded modules
+#   Data::Dumper;
+#   Text::FormatTable;
+#   Term::ReadKey;
+#   File::Path
+
 use vars qw/$VERSION/;
-$VERSION  = '0.03';
+$VERSION = '0.04';
 
 #------------------------------------------------------------
 # Methods
@@ -55,6 +57,10 @@ sub init {
     }
 
     $self->load_defaults;
+
+    Params::Validate::validation_options(
+	on_fail => sub { $_[0] =~ s/to.*did //; die "Your answer didn't validate.\n$_[0]" },
+    );
 
     return $self;
 }
@@ -149,9 +155,10 @@ sub ask {
     my $self = shift;
 
     do {
-	my $i	     = $self->{qi};
-	my $q	     = $self->{questions}[$i];
-	my $name     = $q->name;
+
+	my $i	 = $self->{qi};
+	my $q	 = $self->{questions}[$i];
+	my $name = $q->name;
 
 	# Skip the question?
 	if ( $q->skip ) {
@@ -164,15 +171,34 @@ sub ask {
 	    }
 	}
 
-	$self->prompt( $q );
+	my $attempts = 0;
 
-	# Valid answer?
-	my @args = ( $q->name => $self->{answers}{name});
+	ASK: {
+	    my @args = ( $name => $self->prompt( $q ) );
 
-	if ( $q->validate && ! validate( @args, $q->validate ) ) {
-	    warn "Your answer didn't validate. Please try again.\n\n";
-	    redo;
+	    # Valid answer?
+	    if ( $q->validate ) {
+		croak "validate must be a hashref. Aborting"
+		    unless ref $q->validate eq "HASH";
+
+		eval { validate( @args, { $name => $q->validate } ) };
+
+		if ( $@ ) {
+		    warn $@;
+
+		    if ( ++$attempts > 10 ) {
+			warn "Let's just skip that question, shall we?\n\n";
+			last ASK;
+		    } else {
+			warn "Please try again. [Attempt $attempts]\n\n";
+			redo ASK;
+		    }
+		}
+	    }
+
+	    $self->{answers}{$name} = $args[-1];
 	}
+
     } while ( $self->{qi}++ < scalar @{$self->{questions}} - 1 );
 
     return $self;
@@ -210,7 +236,8 @@ sub save {
 
     my $dir = dirname( $self->{file} );
     unless ( -d $dir ) {
-	mkpath( [ $dir ], $self->{verbose})
+	require File::Path;
+	File::Path::mkpath( [ $dir ], $self->{verbose})
 	    or croak "Can't make path $dir: $!";
     }
 
@@ -250,13 +277,26 @@ sub save_defaults {
     return 1;
 }
 
+# Try to report using the best metho
 sub report {
     my $self = shift;
 
-    my $screen_width
-	= eval { (Term::ReadKey::GetTerminalSize())[0] }
-	|| 79;
+    eval { require Text::FormatTable };
 
+    return $@
+	? $self->report_plain
+	: $self->report_pretty
+
+}
+
+# Report using Test::FormatTable
+sub report_pretty {
+    my $self = shift;
+
+    croak "Can't use report_pretty() unless Text::AutoFormat is loaded."
+	unless UNIVERSAL::can('Text::FormatTable', 'new');
+
+    my $screen_width = eval { require Term::ReadKey; (Term::ReadKey::GetTerminalSize())[0] } || 79;
     my $table	     = Text::FormatTable->new( '| r | l |' );
 
     $table->rule('=');
@@ -273,7 +313,30 @@ sub report {
 
     $table->rule('-');
 
-    return $table->render($screen_width);
+    my $report = $table->render($screen_width);
+    $report =~ s/^/\t/mg; # indent
+
+    return $report;
+}
+
+# Report with plain text.
+sub report_plain {
+    my $self = shift;
+
+    my $report = '';
+
+    for my $q ( @{ $self->{questions} } ) {
+	if ( $q->noecho ) {
+	    $report .= $q->name . ": *****\n";
+	} else {
+	    $report .= $q->name . ": "
+		    . $self->answer( $q->name ) . "\n";
+	}
+    }
+
+    $report =~ s/^/\t/mg; # indent
+
+    return $report;
 }
 
 sub package_text {
@@ -284,6 +347,7 @@ sub package_text {
 
     my $pkg  = $self->{package};
 
+    require Data::Dumper;
     $Data::Dumper::Terse = 2;
     my $answers = Data::Dumper->Dump( [$self->{answers}] );
 
@@ -326,7 +390,7 @@ sub prompt {
         print "$def\n";
     }
 
-    $self->{answers}{$q->name} = $ans ne '' ? $ans : $def;
+    return $ans ne '' ? $ans : $def;
 }
 
 # Question index
@@ -378,35 +442,53 @@ Module::TestConfig - Interactively prompt user to generate a config module
 
 This module prompts a user for info and writes a module for later use.
 You can use it during the module build process (e.g. perl Makefile.PL)
-to share info among your test files. You can use it to write a module
-and install that into your site_perl tree.
+to share info among your test files. You can also use it to install
+that module into your site_perl.
 
 Module::TestConfig writes an object-oriented file. You specify
-the file's location as well as the package name. When you use
-that file, all of the question names will behave as object methods.
+the file's location as well as the package name. When you use()
+the file, each of the questions' names will become an object method.
 
-e.g. If you asked the question:
+For example, if you asked the questions:
 
   Module::TestConfig->new(
 	file      => 't/MyConfig.pm',
 	package   => 'MyConfig',
 	questions => [
-  		       { name => 'fingers',
-		         msg => 'How many fingers am I holding up?',
+	               [ 'Can you feel that bump?', 'feel',    'n' ],
+	               [ 'Would you like another?', 'another', 'y' ],
+  		       { msg     => 'How many fingers am I holding up?',
+		         name    => 'fingers',
 		         default => 11,
 		       },
 		     ],
   )->ask->save;
 
-Then the file t/MyConfig.pm would be written. To use it, add this
-to another file:
+You'd see something like this:
+
+  Can you feel that bump? [n] y
+  Would you like another? [y] n
+  How many fingers am I holding up? [11]
+  Module::TestConfig saved t/MyConfig.pm with these settings:
+  	===================
+  	|    Name | Value |
+  	===================
+  	|    feel | y     |
+  	| another | n     |
+  	| fingers | 11    |
+  	+---------+-------+
+
+...and the file t/MyConfig.pm was written. To use it, add this to
+another file:
 
   use MyConfig;
 
   my $config = MyConfig->new;
-  print $config->fingers; # prints 11 or whatever number the user picked.
+  print $config->fingers;  # prints 11
+  print $config->feel;     # prints 'y'
+  print $config->another;  # prints 'n'
 
-=head2 PUBLIC METHODS
+=head1 PUBLIC METHODS
 
 =over 2
 
@@ -421,20 +503,45 @@ Args and defaults:
   order     => [ 'defaults' ],
   questions => [ ... ],
 
-Returns a new Module::TestConfig object.
+Returns: a new Module::TestConfig object.
 
 =item questions()
 
-Set up the questions that we prompt the user for. They can be in one
-of two forms, the array form or the hash form. See
-L<Module::TestConfig::Question> for more about the question's
-arguments.
+Set up the questions that we'll ask of the user. This is a list (or
+array) of questions. Each question can be in one of two forms, the
+array form or the hash form. See L<Module::TestConfig::Question> for
+more about the question's arguments.
+
+Args:
+  an array of question hashes (or question arrays)
+  a  list  of question hashes (or question arrays)
+
+e.g. (to keep it simple, I'll only give an example of a hash-style
+question):
+
+  [
+    { question => "Question to ask:",
+      name     => "foo",
+      default  => 42,
+      noecho   => 0,
+      skip     => sub { shift->answer('bar') }, # skip if bar is true
+      validate => { regex => /^\d+$/ }, # answer must be all numbers
+    },
+    ...
+  ]
+
+Returns:
+  a  list of questions in list context
+  an arrayref of questions in scalar context.
+
+Here's an overview of the hash-style arguments to set up a question.
+See L<Module::TestConfig::Question> for more details.
 
 Args:
 
 =over 4
 
-=item questions:
+=item question or msg:
 
 A string like "Have you seen my eggplant?" or "Kittens:". They look
 best when they end with a ':' or a '?'.
@@ -444,15 +551,9 @@ best when they end with a ':' or a '?'.
 A simple mnemonic used for looking up values later. Since it will turn
 into a method name in the future, it ought to match /\w+/.
 
-=item default:
+=item default or def:
 
 optional. a default answer.
-
-=item options:
-
-optional. A hashref with any or all of the following:
-
-=over 4
 
 =item noecho:
 
@@ -462,54 +563,76 @@ This is useful when asking for for passwords.
 =item skip:
 
 optional. Accepts either a coderef or a scalar. The Module::TestConfig
-will be passed to the coderef as its first and only argument. Use it
-to look up answer()s. If the coderef returns true or the scalar is
-true, the current question will be skipped.
+object will be passed to the coderef as its first and only
+argument. Use it to look up answer()s. If the coderef returns true or
+the scalar is true, the current question will be skipped.
 
 =item validate:
 
-optional. a Params::Validate::validate() hashref.  See
-L<Params::Validate>. The question will loop until the user types an
-answer that validates.
-
-=back
-
-=back
-
-Args:
-  an AoH. e.g. questions( [ { ... }, ... ] )
-  a  LoH. e.g. questions(   { ... }, ...   )
+optional. A hashref suitable for Params::Validate::validate_pos().
+See L<Params::Validate>. The question will loop over and over until
+the user types in a correct answer - or at least one that validates.
+After the user tries and fails 10 times, Module::TestConfig will give
+up and skip the question.
 
 e.g.
 
-  [
-    [ "Question to ask",  $name, $optional_default, \%optional_options ],
-    ...
-  ]
+  Module::TestConfig->new(
+	questions => [ { question  => 'Choose any integer: ',
+			 name      => 'num',
+			 default   => 0,
+		         validate  => { regex => qr/^\d+$/ },
+		       },
+		       { question  => 'Pick an int between 1 and 10: ',
+			 name      => 'guess',
+			 default   => 5,
+		         validate  => {
+ 			     callbacks => {
+				 '1 <= guess <= 10',
+				 sub { my $n = shift;
+				       return unless $n =~ /^\d+$/;
+				       return if $n < 1 || $n > 10;
+				       return 1;
+				     },
+			     }
+			 }
+		       },
+		     ]
+  )->ask->save;
 
-or
+would behave like this when run:
 
-  [
-    { question => "Question to ask",
-      name => "foo",
-      default => 0,
-      opts => { ... }
-    },
-    ...
-  ]
+  Pick a number, any integer:  [0] peach
+  Your answer didn't validate.
+  The 'num' parameter did not pass regex check
+  Please try again. [Attempt 1]
 
-the $optional_options looks like:
+  Pick a number, any integer:  [0] plum
+  Your answer didn't validate.
+  The 'num' parameter did not pass regex check
+  Please try again. [Attempt 2]
 
-  {
-     noecho => 1, 		# set to 1 for password-prompting
-     skip => \&coderef | $scalar, # skip the current question if true
-     validate => Params::Validate::hashref # question will loop until this passes
-     ...
-  }
+  Pick a number, any integer:  [0] 5
+  Pick an integer between 1 and 10:  [5] 12
+  Your answer didn't validate.
+  The 'guess' parameter did not pass the '1 <= guess <= 10' callback
+  Please try again. [Attempt 1]
 
-Returns:
-  a  list of questions in list context
-  an arrayref of questions in scalar context.
+  Pick an integer between 1 and 10:  [5] -1
+  Your answer didn't validate.
+  The 'guess' parameter did not pass the '1 <= guess <= 10' callback
+  Please try again. [Attempt 2]
+
+  Pick an integer between 1 and 10:  [5] 3
+  Module::TestConfig saved MyConfig.pm with these settings:
+        =================
+        |  Name | Value |
+        =================
+        |   num | 5     |
+        | guess | 3     |
+        +-------+-------+
+
+=back
 
 =item ask()
 
@@ -522,6 +645,17 @@ Returns: a Module::TestConfig object.
 Writes our answers to the file. The file created will always be
 0600 for security reasons. This may change in the future. See
 L<"SECURITY"> for more info.
+
+=item defaults()
+
+A file parsed by Config::Auto which may be used as default answers to
+the questions. See L<"order()">
+
+Default: "defaults.config"
+
+Args: A filename or path.
+
+Returns: A filename or path.
 
 =item save_defaults()
 
@@ -536,17 +670,6 @@ Args and defaults:
 
 Returns: 1 on success, undef on failure. Any error message can be
 found in $!.
-
-=item defaults()
-
-A file parsed by Config::Auto which may be used as default answers to
-the questions. See L<"order()">
-
-Default: "defaults.config"
-
-Args: A filename or path.
-
-Returns: A filename or path.
 
 =item file()
 
@@ -572,12 +695,14 @@ Returns: the set package.
 
 Default: [ 'defaults' ]
 
-Args: ordered list of 'defaults' and/or 'env'.
+Args: [ qw/defaults env/ ]
+      [ qw/env defaults/ ]
+      [ qw/defaults/ ]
+      [ qw/env/ ]
+      [ ] # Don't preload defaults from file or env
 
-Defaults to the questions can come from either a file, the environment,
-or some combination of both.
-
-Args:
+Where do we look up defaults for the questions? They can come from
+either a file, the environment or perhaps come combination of both.
 
 =over 4
 
@@ -606,12 +731,13 @@ A default supplied with the question.
 
 =back
 
-There's a security risk when accepting defaults from the environment.
-See L<"SECURITY">
+There's a security risk accepting defaults from the environment or
+from a file. See L<"SECURITY">.
 
 =item answer()
 
-Get the current value of a question. This can be used with skip.
+Get the current value of a question. Useful when paired with a skip
+or validate.
 
 Args: a question's name.
 
@@ -628,16 +754,6 @@ Args: 1 or 0
 
 Returns: current value
 
-=item debug()
-
-Placeholder for future development - this method isn't used.
-
-Default: 0
-
-Args: 1 or 0
-
-Returns: current value
-
 =back
 
 =head1 PROTECTED METHODS
@@ -648,8 +764,8 @@ These are documented primarily for subclassing.
 
 =item answers()
 
-A user's questions get stored here. If you preset any answers
-beforehand, they may be used as defaults. See L<"order()"> for
+A user's questions get stored here. If you preset any answers before
+calling ask(), they may be used as defaults. See L<"order()"> for
 those rules.
 
 Args: a hash of question names and answers
@@ -658,15 +774,17 @@ Returns: A hash in list context, a hashref in scalar context.
 
 =item prompt()
 
-Ask the user a question. The answer will be cached in the object for
-later.
+Ask the user a question. It's your job to store the answer in
+the answers().
 
 Args: $question, $default_answer, \%options
 
+Returns: the user's answer, a suitable default or ''.
+
 =item get_default()
 
-Look through the options(), the answers(), and the question's default
-for a suitable default to print with the question.
+Get a question's default answer from env, file, answer() or the
+question. It's printed with a prompt()ed question.
 
 =item load_defaults()
 
@@ -689,18 +807,51 @@ Returns: The current number
 =item report()
 
 Returns a report of question names and values. Will be printed if the
-object is in verbose mode.
+object is in verbose mode. This calls report_pretty() or
+report_plain() depending on whether Text::AutoFormat is
+available. Won't print any passwords (questions called with C<noecho
+=E<gt> 1> ) in plaintext.
+
+=item report_pretty()
+
+Prints the report like this:
+
+        ==================
+        |   Name | Value |
+        ==================
+        |    one | 1     |
+        |    two | 2     |
+        |  three | 3     |
+        |  fruit | kiwi  |
+        |   meat | pork  |
+	| passwd | ***** |
+        +--------+-------+
+
+=item report_plain()
+
+Prints the report like this:
+
+	one: 1
+	two: 2
+	three: 3
+	fruit: kiwi
+	meat: pork
+	passwd: *****
 
 =back
 
 =head1 SECURITY
 
-The resultant file (TestConfig.pm by default) will be chmod'd to 0600
+The resultant file (MyConfig.pm by default) will be chmod'd to 0600
 but it will remain on the system.
 
-Using the environment as input may also be a security risk - or a
-potential bug - especially if your names mimic existing environment
-variables.
+The default action is to load a file named 'defaults.config' and use
+that for, well, defaults. If someone managed to put their own
+defaults.config into your working directory, they might be able to
+sneak a bad default past an unwitting user.
+
+Using the environment as input may be a security risk - or a potential
+bug - especially if your names mimic existing environment variables.
 
 =head1 AUTHOR
 
@@ -715,6 +866,7 @@ it under the same terms as Perl itself.
 
 =head1 SEE ALSO
 
+L<Module::TestConfig::Question>
 L<ExtUtils::MakeMaker>
 L<Module::Build>
 
