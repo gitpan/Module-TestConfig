@@ -1,5 +1,9 @@
 Changes for Module::TestConfig
 
+0.05  Fri Dec 19 18:48:40 PST 2008
+	- fixed a STDIN warning in save_defaults()
+	- requiring perl 5.8.0 because we need to disable warnings for "io".
+
 0.04  Thu Aug 28 18:53:31 2003
 	- major validate bug fixed
 	- added more examples to the docs

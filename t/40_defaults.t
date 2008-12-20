@@ -20,24 +20,25 @@ ok $t = Module::TestConfig->new( questions => [
 				 defaults => 't/etc/defaults.config',
 			       ), "new()";
 
-close STDIN or warn $!;		# query noninteractively.
+# And this is intentional.
+# close STDIN or warn $!;		# query noninteractively.
 
-ok $t->ask,			 "ask()";
+close STDIN or warn $!;
+
+ok $t->ask,	"ask()";
 
 is $t->answer( 'one' ), 1,	 "answer(1) from file";
 is $t->answer( 'two' ), 2,	 "answer(2) from file";
-is $t->answer( 'three' ), 3,	 "answer(3) from file";
+is $t->answer( 'three' ), 3, "answer(3) from file";
 is $t->answer( 'four' ), 4,	 "answer(4) from default";
 is $t->answer( 'testconfig_five' ), 5,	 "answer(5) from env";
 
 $t->{answers}{'bro:ken'} = 'broken';
 is $t->answer( 'bro:ken' ), 'broken',		"bad answer set";
 
-# save_defaults() tests:
-
 warnings_like
     { $t->save_defaults(file => 'test.conf') }
-    { carped => "/^Skipping bad key/" },
+    { carped => "/Skipping bad key/ms" },
     "save_defaults()";
 
 ok -r 'test.conf',				"wrote new defaults file";

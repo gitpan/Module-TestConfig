@@ -15,3 +15,4 @@ t/40_defaults.t
 t/50_save.t
 t/60_validate.t
 t/etc/defaults.config
+META.yml                                 Module meta-data (added by MakeMaker)
