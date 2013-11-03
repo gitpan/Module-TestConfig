@@ -1,9 +1,10 @@
-.cvsignore
 Changes
-MANIFEST			This list of files
-MANIFEST.SKIP
+LICENSE
+MANIFEST
+META.yml
 Makefile.PL
 README
+dist.ini
 lib/Module/TestConfig.pm
 lib/Module/TestConfig/Question.pm
 t/00_init.t
@@ -15,4 +16,5 @@ t/40_defaults.t
 t/50_save.t
 t/60_validate.t
 t/etc/defaults.config
-META.yml                                 Module meta-data (added by MakeMaker)
+t/release-pod-coverage.t
+t/release-pod-syntax.t

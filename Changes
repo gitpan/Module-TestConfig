@@ -1,5 +1,9 @@
 Changes for Module::TestConfig
 
+0.06  Fri Nov  2 22:37:07 PDT 2013
+	- Tests pass on Wint32
+	- Remove backup MyConfig.pm support
+
 0.05  Fri Dec 19 18:48:40 PST 2008
 	- fixed a STDIN warning in save_defaults()
 	- requiring perl 5.8.0 because we need to disable warnings for "io".

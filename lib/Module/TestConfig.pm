@@ -1,16 +1,17 @@
 # -*- perl -*-
 #
-# Module::TestConfig - asks questions and autowrite a module
-#
-# $Id: TestConfig.pm,v 1.33 2003/08/29 18:40:16 jkeroes Exp $
+# Module::TestConfig - asks questions to autowrite a config module
 
 package Module::TestConfig;
+{
+  $Module::TestConfig::VERSION = '0.06_01';
+}
 
 require 5.008;
 use strict;
 use Carp;
 use Fcntl;
-use File::Basename	qw/dirname/;
+use File::Basename  qw/dirname/;
 use Params::Validate;
 use Config::Auto;
 use Module::TestConfig::Question;
@@ -21,8 +22,6 @@ use Module::TestConfig::Question;
 #   Term::ReadKey;
 #   File::Path
 
-our $VERSION = '0.05';
-
 #------------------------------------------------------------
 # Methods
 #------------------------------------------------------------
@@ -32,13 +31,13 @@ sub new {
     my $class = ref $proto || $proto;
     my $self = bless {}, $class;
     return $self->init(
-	verbose   => 1,
-	defaults  => 'defaults.config',
-	file      => 'MyConfig.pm',
-	package   => 'MyConfig',
-	order     => [ qw/defaults/ ],
-	questions => [ ],
-	_defaults => { },
+        verbose   => 1,
+        defaults  => 'defaults.config',
+        file      => 'MyConfig.pm',
+        package   => 'MyConfig',
+        order     => [ qw/defaults/ ],
+        questions => [ ],
+        _defaults => { },
         qi       => 0,
         @_,
     );
@@ -48,17 +47,17 @@ sub init {
     my ( $self, %args )  = @_;
 
     while ( my ( $method, $args ) = each %args ) {
-	if ( $self->can( $method ) ) {
-	    $self->$method( $args );
-	} else {
-	    croak "Can't handle arg: '$method'. Aborting";
-	}
+        if ( $self->can( $method ) ) {
+            $self->$method( $args );
+        } else {
+            croak "Can't handle arg: '$method'. Aborting";
+        }
     }
 
     $self->load_defaults;
 
     Params::Validate::validation_options(
-	on_fail => sub { $_[0] =~ s/to.*did //; die "Your answer didn't validate.\n$_[0]" },
+        on_fail => sub { $_[0] =~ s/to.*did //; die "Your answer didn't validate.\n$_[0]" },
     );
 
     return $self;
@@ -66,20 +65,14 @@ sub init {
 
 sub load_defaults {
     my $self = shift;
-    $self->{_defaults} = Config::Auto::parse( $self->{defaults} )
-	if -r $self->{defaults};
+    $self->{_defaults} = Config::Auto::parse( $self->defaults )
+        if -r $self->defaults;
 }
 
 sub verbose {
     my $self = shift;
     $self->{verbose} = shift if @_;
     $self->{verbose};
-}
-
-sub debug {
-    my $self = shift;
-    $self->{debug} = shift if @_;
-    $self->{debug};
 }
 
 sub file {
@@ -108,16 +101,23 @@ sub _defaults {
     $self->{_defaults};
 }
 
+# Question index
+sub qi {
+    my $self = shift;
+    $self->{qi} = shift if @_;
+    $self->{qi};
+}
+
 sub order {
     my $self = shift;
 
     if ( @_ ) {
-	my @order = ref $_[0] eq "ARRAY" ? @{ $_[0] } : @_;
-	for my $order ( @order ) {
-	    croak "Bad arg given to order(): '$order'"
-		unless grep /^$order$/, qw/defaults env/;
-	}
-	$self->{order} = [ @order ];
+        my @order = ref $_[0] eq "ARRAY" ? @{ $_[0] } : @_;
+        for my $order ( @order ) {
+            croak "Bad arg given to order(): '$order'"
+                unless grep /^$order$/, qw/defaults env/;
+        }
+        $self->{order} = [ @order ];
     }
 
     return wantarray ? @{ $self->{order} } : $self->{order};
@@ -127,13 +127,13 @@ sub questions {
     my $self = shift;
 
     if ( @_ > 1 ) {
-	$self->{questions}
-	    = [ map { Module::TestConfig::Question->new( $_ ) } @_ ];
+        $self->{questions}
+            = [ map { Module::TestConfig::Question->new( $_ ) } @_ ];
     } elsif ( @_ == 1 && ref $_[0] eq "ARRAY" ) {
-	$self->{questions}
-	    = [ map { Module::TestConfig::Question->new( $_ ) } @{ $_[0] } ];
+        $self->{questions}
+            = [ map { Module::TestConfig::Question->new( $_ ) } @{ $_[0] } ];
     } elsif ( @_ ) {
-	croak "questions() got bad args. Needs a list or arrayref.";
+        croak "questions() got bad args. Needs a list or arrayref.";
     }
 
     return wantarray ? @{ $self->{questions} } : $self->{questions};
@@ -147,58 +147,58 @@ sub answers {
 
 sub answer {
     my $self = shift;
-    return $self->{answers}{+shift};
+    my ($key, $val) = @_;
+    return if not defined $key;
+    return $self->{answers}{$key} if not defined $val;
+    return $self->{answers}{$key} = $val;
 }
 
 sub ask {
     my $self = shift;
 
     do {
+        my $q  = $self->questions->[$self->qi];
+        my $name = $q->name;
 
-	my $i	 = $self->{qi};
-	my $q	 = $self->{questions}[$i];
-	my $name = $q->name;
+        # Skip the question?
+        if ( $q->skip ) {
+            if ( ref $q->skip eq "CODE" ) {
+                next if $q->skip->( $self );
+            } elsif ( not ref $q->skip ) {
+                next if $q->skip;
+            } else {
+                croak "Don't know how to handle question #" . $self->qi . "'s skip block";
+            }
+        }
+        my $attempts = 0;
 
-	# Skip the question?
-	if ( $q->skip ) {
-	    if ( ref $q->skip eq "CODE" ) {
-		next if $q->skip->( $self );
-	    } elsif ( not ref $q->skip ) {
-		next if $q->skip;
-	    } else {
-		croak "Don't know how to handle question #$i\'s skip block";
-	    }
-	}
+        ASK: {
+            my @args = ( $name => $self->prompt( $q ) );
 
-	my $attempts = 0;
+            # Valid answer?
+            if ( $q->validate ) {
+                croak "validate must be a hashref. Aborting"
+                    unless ref $q->validate eq "HASH";
 
-	ASK: {
-	    my @args = ( $name => $self->prompt( $q ) );
+                eval { validate( @args, { $name => $q->validate } ) };
 
-	    # Valid answer?
-	    if ( $q->validate ) {
-		croak "validate must be a hashref. Aborting"
-		    unless ref $q->validate eq "HASH";
+                if ( $@ ) {
+                    warn $@;
 
-		eval { validate( @args, { $name => $q->validate } ) };
+                    if ( ++$attempts > 10 ) {
+                        warn "Let's just skip that question, shall we?\n\n";
+                        last ASK;
+                    } else {
+                        warn "Please try again. [Attempt $attempts]\n\n";
+                        redo ASK;
+                    }
+                }
+            }
 
-		if ( $@ ) {
-		    warn $@;
+            $self->answer($name, $args[-1]);
+        }
 
-		    if ( ++$attempts > 10 ) {
-			warn "Let's just skip that question, shall we?\n\n";
-			last ASK;
-		    } else {
-			warn "Please try again. [Attempt $attempts]\n\n";
-			redo ASK;
-		    }
-		}
-	    }
-
-	    $self->{answers}{$name} = $args[-1];
-	}
-
-    } while ( $self->{qi}++ < scalar @{$self->{questions}} - 1 );
+    } while ( $self->qi( $self->qi + 1 ) < scalar @{ $self->questions } );
 
     return $self;
 }
@@ -206,100 +206,86 @@ sub ask {
 sub get_default {
     my ($self, $i) = @_;
 
-    $i ||= $self->{qi};
-    my $q = $self->{questions}[$i];
+    $i ||= $self->qi;
+    my $q = $self->questions->[$i];
     my $default = $q->default;
     my $name    = $q->name
-	or croak "No name defined for question \#$i.";
+        or croak "No name defined for question \#$i.";
 
     for ( $self->order ) {
-	if ( /^env/o ) {
-	    return $ENV{"\U$name"} if defined $ENV{"\U$name"};
-	    return $ENV{"\L$name"} if defined $ENV{"\L$name"};
-	}
+        if ( /^env/o ) {
+            return $ENV{"\U$name"} if defined $ENV{"\U$name"};
+            return $ENV{"\L$name"} if defined $ENV{"\L$name"};
+        }
 
-	return $self->{_defaults}{$name}
-	    if /^defaults/ && $self->{_defaults}{$name};
+        return $self->_defaults->{$name}
+            if /^defaults/ && $self->{_defaults}{$name};
     }
 
-    # This will be undef unless set via answers()
-    # or new( answers => {...} ).
-    return $self->{answers}{$name} || $default;
+    my $answer = $self->answer($name);
+    return defined $answer ? $answer : $default;
 }
 
 sub save {
     my ($self) = @_;
 
     my $text = $self->package_text
-	or croak "No text to save. Aborting.";
+        or croak "No text to save. Aborting.";
 
-    my $dir = dirname( $self->{file} );
+    my $dir = dirname( $self->file );
     unless ( -d $dir ) {
-	require File::Path;
-	File::Path::mkpath( [ $dir ], $self->{verbose})
-	    or croak "Can't make path $dir: $!";
+        require File::Path;
+        File::Path::mkpath( [ $dir ], $self->verbose )
+            or croak "Can't make path $dir: $!";
     }
 
-    sysopen F, $self->{file}, O_CREAT | O_WRONLY | O_TRUNC, 0600
-	or croak "Can't open '$self->{file}' for write: $!";
-    print F  $text;
-    close F or carp ("Can't close '$self->{file}'. $!"), return;
+    sysopen my $fh, $self->file, O_CREAT | O_WRONLY | O_TRUNC, 0600
+        or croak "Can't open '" . $self->file . "' for write: $!";
+    print $fh $text;
+    close $fh or carp ("Can't close '" . $self->file . "'. $!"), return;
 
-    print "Module::TestConfig saved $self->{file} with these settings:\n"
-	. $self->report if $self->{verbose};
+    print "Module::TestConfig saved " . $self->file . " with these settings:\n"
+        . $self->report if $self->verbose;
 }
-
-# Error in v.04:
-#
-#   Failed test 'save_defaults()'
-#   at t/40_defaults.t line 40.
-# found warning: Filehandle STDIN reopened as F only for output at /home/sand/.cpan/build/Module-TestConfig-0.04-pvLCvJ/blib/lib/Module/TestConfig.pm line 263.
-# found carped warning: Skipping bad key with a separator in it: 'bro:ken' at t/40_defaults.t line 39
-# expected to find carped warning: /^Skipping bad key/
-# Looks like you failed 1 test of 28.
-#
-# We're going to ignore that STDIN warning here - ignoring it in t/40_defaults.t does nothing.
 
 sub save_defaults {
     my $self = shift;
-    my %args = ( file => $self->{defaults},
-		 sep  => ':',
-		 @_,
-	       );
+    my %args = (
+        file => $self->defaults,
+        sep  => ':',
+        @_,
+    );
 
-    # doesn't matter if this fails:
-    rename $args{file}, "$args{file}.bak" if -e $args{file};
+    no warnings "io";
 
-	no warnings "io";
-
-    open  F, "> $args{file}"
+    open my $fh, "> $args{file}"
         or carp ("Unable to write to $args{file}: $!"), return;
 
-	use warnings "io";
+    use warnings "io";
 
-    print F "# This defaults file was autogenerated by Module::TestConfig for $self->{package}\n\n";
+    print $fh "# This defaults file was autogenerated by Module::TestConfig for "
+        . $self->package . "\n\n";
 
-    while ( my ($k, $v) = each %{ $self->{answers} } ) {
-	carp ("Skipping bad key with a separator in it: '$k'"), next
-	    if $k =~ /$args{sep}/;
-	print F "$k$args{sep}$v\n";
+    while ( my ($k, $v) = each %{ $self->answers } ) {
+        carp ("Skipping bad key with a separator in it: '$k'"), next
+        if $k =~ /$args{sep}/;
+        print $fh "$k$args{sep}$v\n";
     }
 
-    close F or return;
+    close $fh or return;
 
     return 1;
 }
 
-# Try to report using the best metho
+# Try to report using the best method
 sub report {
     my $self = shift;
 
     eval { require Text::FormatTable };
 
     return $@
-	? $self->report_plain
-	: $self->report_pretty
-
+        ? $self->report_plain
+        : $self->report_pretty
 }
 
 # Report using Test::FormatTable
@@ -307,21 +293,21 @@ sub report_pretty {
     my $self = shift;
 
     croak "Can't use report_pretty() unless Text::AutoFormat is loaded."
-	unless UNIVERSAL::can('Text::FormatTable', 'new');
+        unless UNIVERSAL::can('Text::FormatTable', 'new');
 
     my $screen_width = eval { require Term::ReadKey; (Term::ReadKey::GetTerminalSize())[0] } || 79;
-    my $table	     = Text::FormatTable->new( '| r | l |' );
+    my $table      = Text::FormatTable->new( '| r | l |' );
 
     $table->rule('=');
     $table->head('Name', 'Value');
     $table->rule('=');
 
-    for my $q ( @{ $self->{questions} } ) {
-	if ( $q->noecho ) {
-	    $table->row( $q->name, '*****' );
-	} else {
-	    $table->row( $q->name, $self->answer( $q->name ) );
-	}
+    for my $q ( @{ $self->questions } ) {
+        if ( $q->noecho ) {
+            $table->row( $q->name, '*****' );
+        } else {
+            $table->row( $q->name, $self->answer( $q->name ) );
+        }
     }
 
     $table->rule('-');
@@ -338,13 +324,12 @@ sub report_plain {
 
     my $report = '';
 
-    for my $q ( @{ $self->{questions} } ) {
-	if ( $q->noecho ) {
-	    $report .= $q->name . ": *****\n";
-	} else {
-	    $report .= $q->name . ": "
-		    . $self->answer( $q->name ) . "\n";
-	}
+    for my $q ( @{ $self->questions } ) {
+        if ( $q->noecho ) {
+            $report .= $q->name . ": *****\n";
+        } else {
+            $report .= $q->name . ": ". $self->answer( $q->name ) . "\n";
+        }
     }
 
     $report =~ s/^/\t/mg; # indent
@@ -355,14 +340,17 @@ sub report_plain {
 sub package_text {
     my $self = shift;
 
+
+    my $data_pos = tell DATA;
     local $/ = undef;
     local $_ = <DATA>;
+    seek DATA, $data_pos, 0;
 
-    my $pkg  = $self->{package};
+    my $pkg  = $self->package;
 
     require Data::Dumper;
     $Data::Dumper::Terse = 2;
-    my $answers = Data::Dumper->Dump( [$self->{answers}] );
+    my $answers = Data::Dumper->Dump( [ { $self->answers } ]  );
 
     s/%%PACKAGE%%/$pkg/mg;
     s/%%ANSWERS%%/$answers/m;
@@ -374,16 +362,16 @@ sub package_text {
 # Based on ExtUtils::MakeMaker::prompt().
 sub prompt {
     my $self  = shift;
-    my $q     = shift || $self->{questions}[$self->{qi}];
+    my $q     = shift || $self->questions->[$self->qi];
 
     local $| = 1;
 
     croak "prompt() called incorrectly"
-	unless defined $q->msg && defined $q->name;
+        unless defined $q->msg && defined $q->name;
 
     my $def      = $self->get_default;
-    my $dispdef	 = defined $def ? " [$def] " : " ";
-    $def	 = defined $def ? $def      : "";
+    my $dispdef  = defined $def ? " [$def] " : " ";
+    $def   = defined $def ? $def      : "";
 
     print $q->msg . $dispdef;
 
@@ -391,14 +379,14 @@ sub prompt {
     my $ISA_TTY = -t STDIN && (-t STDOUT || !(-f STDOUT || -c STDOUT)); # Pipe?
 
     if ( $ISA_TTY ) {
-	if ( $Term::ReadKey::VERSION && $q->noecho ) {
-	    ReadMode( 'noecho' );
-	    chomp( $ans = ReadLine(0) );
-	    ReadMode( 'normal' );
-	    print "\n";
-	} else {
-	    chomp( $ans = <STDIN> );
-	}
+        if ( $Term::ReadKey::VERSION && $q->noecho ) {
+            ReadMode( 'noecho' );
+            chomp( $ans = ReadLine(0) );
+            ReadMode( 'normal' );
+            print "\n";
+        } else {
+            chomp( $ans = <STDIN> );
+        }
     } else {
         print "$def\n";
     }
@@ -406,12 +394,6 @@ sub prompt {
     return $ans ne '' ? $ans : $def;
 }
 
-# Question index
-sub qi {
-    my $self = shift;
-    $self->{qi} = shift if @_;
-    $self->{qi};
-}
 
 #------------------------------------------------------------
 # Docs
@@ -421,20 +403,24 @@ sub qi {
 
 Module::TestConfig - Interactively prompt user to generate a config module
 
+=head1 VERSION
+
+version 0.06_01
+
 =head1 SYNOPSIS
 
   use Module::TestConfig;
 
   Module::TestConfig->new(
-	verbose   => 1,
-	defaults  => 'defaults.config',
-	file      => 'MyConfig.pm',
-	package   => 'MyConfig',
-	order     => [ qw/defaults env/ ],
-	questions => [
-	  [ 'Would you like tea?' => 'tea', 'y' ],
-	  [ 'Crumpets?' => 'crumpets', 'y' ],
-	]
+  verbose   => 1,
+  defaults  => 'defaults.config',
+  file      => 'MyConfig.pm',
+  package   => 'MyConfig',
+  order     => [ qw/defaults env/ ],
+  questions => [
+    [ 'Would you like tea?' => 'tea', 'y' ],
+    [ 'Crumpets?' => 'crumpets', 'y' ],
+  ]
   )->ask->save;
 
 # and in another module or test file:
@@ -465,16 +451,16 @@ the file, each of the questions' names will become an object method.
 For example, if you asked the questions:
 
   Module::TestConfig->new(
-	file      => 't/MyConfig.pm',
-	package   => 'MyConfig',
-	questions => [
-	               [ 'Can you feel that bump?', 'feel',    'n' ],
-	               [ 'Would you like another?', 'another', 'y' ],
-  		       { msg     => 'How many fingers am I holding up?',
-		         name    => 'fingers',
-		         default => 11,
-		       },
-		     ],
+  file      => 't/MyConfig.pm',
+  package   => 'MyConfig',
+  questions => [
+                 [ 'Can you feel that bump?', 'feel',    'n' ],
+                 [ 'Would you like another?', 'another', 'y' ],
+             { msg     => 'How many fingers am I holding up?',
+             name    => 'fingers',
+             default => 11,
+           },
+         ],
   )->ask->save;
 
 You'd see something like this:
@@ -483,13 +469,13 @@ You'd see something like this:
   Would you like another? [y] n
   How many fingers am I holding up? [11]
   Module::TestConfig saved t/MyConfig.pm with these settings:
-  	===================
-  	|    Name | Value |
-  	===================
-  	|    feel | y     |
-  	| another | n     |
-  	| fingers | 11    |
-  	+---------+-------+
+    ===================
+    |    Name | Value |
+    ===================
+    |    feel | y     |
+    | another | n     |
+    | fingers | 11    |
+    +---------+-------+
 
 ...and the file t/MyConfig.pm was written. To use it, add this to
 another file:
@@ -517,6 +503,10 @@ Args and defaults:
   questions => [ ... ],
 
 Returns: a new Module::TestConfig object.
+
+=item init()
+
+Sets object attributes.
 
 =item questions()
 
@@ -591,26 +581,30 @@ up and skip the question.
 e.g.
 
   Module::TestConfig->new(
-	questions => [ { question  => 'Choose any integer: ',
-			 name      => 'num',
-			 default   => 0,
-		         validate  => { regex => qr/^\d+$/ },
-		       },
-		       { question  => 'Pick an int between 1 and 10: ',
-			 name      => 'guess',
-			 default   => 5,
-		         validate  => {
- 			     callbacks => {
-				 '1 <= guess <= 10',
-				 sub { my $n = shift;
-				       return unless $n =~ /^\d+$/;
-				       return if $n < 1 || $n > 10;
-				       return 1;
-				     },
-			     }
-			 }
-		       },
-		     ]
+    questions => [
+        {
+            question  => 'Choose any integer: ',
+            name      => 'num',
+            default   => 0,
+            validate  => { regex => qr/^\d+$/ },
+        },
+        {
+            question  => 'Pick an int between 1 and 10: ',
+            name      => 'guess',
+            default   => 5,
+            validate  => {
+                callbacks => {
+                    '1 <= guess <= 10',
+                    sub {
+                        my $n = shift;
+                        return unless $n =~ /^\d+$/;
+                        return if $n < 1 || $n > 10;
+                        return 1;
+                    },
+                },
+            },
+        },
+    ]
   )->ask->save;
 
 would behave like this when run:
@@ -837,19 +831,19 @@ Prints the report like this:
         |  three | 3     |
         |  fruit | kiwi  |
         |   meat | pork  |
-	| passwd | ***** |
+        | passwd | ***** |
         +--------+-------+
 
 =item report_plain()
 
 Prints the report like this:
 
-	one: 1
-	two: 2
-	three: 3
-	fruit: kiwi
-	meat: pork
-	passwd: *****
+  one: 1
+  two: 2
+  three: 3
+  fruit: kiwi
+  meat: pork
+  passwd: *****
 
 =back
 
@@ -868,11 +862,11 @@ bug - especially if your names mimic existing environment variables.
 
 =head1 AUTHOR
 
-Joshua Keroes E<lt>jkeroes@eli.netE<gt>
+Joshua Keroes E<lt>joshua@cpan.orgE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright 2003 by Joshua Keroes E<lt>jkeroes@eli.netE<gt>
+Copyright 2003-2013 by Joshua Keroes E<lt>joshua@cpan.orgE<gt>
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself.
@@ -918,4 +912,3 @@ sub AUTOLOAD {
 }
 
 1;
-
